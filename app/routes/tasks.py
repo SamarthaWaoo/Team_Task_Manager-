@@ -57,27 +57,23 @@ def create_task(pid):
 @jwt_required()
 def update_task(tid):
     uid = int(get_jwt_identity())
-    user = get_current_user()
+    user = User.query.get(uid) #
     t = Task.query.get_or_404(tid)
-    if user.role != 'admin':
-        if not check_member(t.project_id, uid):
-            return jsonify({'error': 'Access denied'}), 403
+    data = request.get_json()
+
+    if user.role == 'admin':
+        # Admin can reassign anyone
+        if 'assigned_to' in data:
+            t.assigned_to = data['assigned_to']
+    else:
+        # Member can only update status of tasks assigned to them
         if t.assigned_to != uid:
             return jsonify({'error': 'You can only update your own tasks'}), 403
-        allowed = ['status']
-        data = {k: v for k, v in request.get_json().items() if k in allowed}
-        for field in allowed:
-            if field in data:
-                setattr(t, field, data[field])
-    else:
-        data = request.get_json()
-        for field in ['title', 'description', 'status', 'priority', 'assigned_to']:
-            if field in data:
-                setattr(t, field, data[field])
-        if 'due_date' in data and data['due_date']:
-            t.due_date = datetime.fromisoformat(data['due_date'])
-    db.session.commit()
-    return jsonify({'message': 'Updated'})
+        if 'status' in data:
+            t.status = data['status']
+
+    db.session.commit() #
+    return jsonify({'message': 'Task updated successfully'})
 
 @tasks_bp.route('/<int:tid>', methods=['DELETE'])
 @jwt_required()
