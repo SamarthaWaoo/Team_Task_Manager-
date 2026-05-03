@@ -11,18 +11,20 @@ ADMIN_PASSWORD = "admin@12345"
 @auth_bp.route('/signup', methods=['POST'])
 def signup():
     data = request.get_json()
-    if not data or not data.get('email') or not data.get('password'):
-        return jsonify({'error': 'Email and password required'}), 400
+    # ... your existing validation ...
+    
     if User.query.filter_by(email=data['email']).first():
         return jsonify({'error': 'Email already exists'}), 409
-    user = User(name=data.get('name', ''), email=data['email'])
+    
+    # NEW LOGIC: Check if this is the admin email you defined above
+    role = 'admin' if data['email'] == ADMIN_EMAIL else 'member'
+    
+    user = User(name=data.get('name', ''), email=data['email'], role=role)
     user.set_password(data['password'])
     db.session.add(user)
     db.session.commit()
-    token = create_access_token(identity=str(user.id))
-    return jsonify({'token': token, 'user': {
-        'id': user.id, 'name': user.name,
-        'email': user.email, 'role': user.role}}), 201
+    
+    # ... rest of your code ...
 
 @auth_bp.route('/login', methods=['POST'])
 def login():
