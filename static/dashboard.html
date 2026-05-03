@@ -10,6 +10,7 @@
   <nav>
     <span>⊞ Team Task Manager</span>
     <div style="display:flex;align-items:center;gap:12px;">
+      <span id="userRole" style="font-size:12px;font-weight:600;padding:4px 10px;border-radius:6px;background:#f0f4ff;color:#1a73e8;"></span>
       <span id="welcomeMsg" style="font-size:13px;color:#64748b;"></span>
       <button onclick="logout()">Logout</button>
     </div>
@@ -20,7 +21,10 @@
 
     <div class="section-header">
       <h2>My Projects</h2>
-      <button class="btn-add" onclick="showCreateProject()">+ New Project</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-add" onclick="showAddMember()" style="background:#6366f1;">+ Add Member</button>
+        <button class="btn-add" onclick="showCreateProject()">+ New Project</button>
+      </div>
     </div>
     <div id="projects" class="projects-grid"></div>
 
@@ -32,6 +36,7 @@
       <div class="tasks-container">
         <div class="tasks-header">
           <span>Task</span>
+          <span>Assigned To</span>
           <span>Priority</span>
           <span>Status</span>
         </div>
@@ -59,8 +64,10 @@
     let currentProject = null;
     let currentProjectName = '';
     let modalAction = null;
+    let projectMembers = [];
 
     document.getElementById('welcomeMsg').textContent = 'Hello, ' + (user.name || 'User');
+    document.getElementById('userRole').textContent = (user.role || 'member').toUpperCase();
 
     async function loadStats() {
       const r = await fetch('/api/tasks/dashboard', {headers: h});
@@ -89,16 +96,61 @@
     async function loadTasks(pid, pname) {
       currentProject = pid;
       currentProjectName = pname;
+
+      const mr = await fetch(`/api/projects/${pid}/members-list`, {headers: h});
+      projectMembers = await mr.json();
+
       document.getElementById('tasks-section').style.display = 'block';
       document.getElementById('tasksTitle').textContent = pname + ' — Tasks';
+
       const r = await fetch(`/api/tasks/project/${pid}`, {headers: h});
       const ts = await r.json();
+
+      document.getElementById('tasks').innerHTML = ts.length
+        ? ts.map(t => {
+            return `
+            <div class="task ${t.is_overdue ? 'overdue-task' : ''}">
+              <div class="task-info">
+                <div class="task-title">${t.title}</div>
+                ${t.is_overdue ? '<span class="badge-overdue">Overdue</span>' : ''}
+                ${t.due_date ? `<div class="task-sub">Due: ${new Date(t.due_date).toLocaleDateString()}</div>` : ''}
+              </div>
+              <div class="task-controls">
+                <select onchange="updateAssign(${t.id}, this.value)">
+                  <option value="">— Unassigned —</option>
+                  ${projectMembers.map(m => `<option value="${m.id}" ${t.assigned_to===m.id?'selected':''}>${m.name}</option>`).join('')}
+                </select>
+              </div>
+              <div><span class="priority ${t.priority}">${t.priority}</span></div>
+              <div class="task-controls">
+                <select onchange="updateStatus(${t.id}, this.value)">
+                  <option ${t.status==='todo'?'selected':''} value="todo">To Do</option>
+                  <option ${t.status==='in_progress'?'selected':''} value="in_progress">In Progress</option>
+                  <option ${t.status==='done'?'selected':''} value="done">Done</option>
+                </select>
+              </div>
+            </div>`;
+          }).join('')
+        : '<p class="empty">No tasks yet. Add your first task!</p>';
+
+      document.getElementById('tasks-section').scrollIntoView({behavior:'smooth'});
     }
 
     async function updateStatus(tid, status) {
       await fetch(`/api/tasks/${tid}`, {
         method: 'PATCH', headers: h,
         body: JSON.stringify({status})
+      });
+      loadStats();
+      loadTasks(currentProject, currentProjectName);
+    }
+
+    async function updateAssign(tid, assignedTo) {
+      await fetch(`/api/tasks/${tid}`, {
+        method: 'PATCH', headers: h,
+        body: JSON.stringify({
+          assigned_to: assignedTo ? parseInt(assignedTo) : null
+        })
       });
       loadStats();
       loadTasks(currentProject, currentProjectName);
@@ -124,8 +176,10 @@
       loadProjects();
     }
 
-    function showCreateTask() {
-      if (!currentProject) return alert('Please select a project first');
+    async function showCreateTask() {
+      if (!currentProject) return alert('Please click on a project first');
+      const mr = await fetch(`/api/projects/${currentProject}/members-list`, {headers: h});
+      const members = await mr.json();
       document.getElementById('modalTitle').textContent = 'Create New Task';
       document.getElementById('modalBody').innerHTML = `
         <input id="tTitle" placeholder="Task title">
@@ -135,7 +189,11 @@
           <option value="medium" selected>Medium Priority</option>
           <option value="high">High Priority</option>
         </select>
-        <input id="tDue" type="datetime-local" placeholder="Due date (optional)">`;
+        <input id="tDue" type="datetime-local">
+        <select id="tAssign">
+          <option value="">— Assign to member (optional) —</option>
+          ${members.map(m => `<option value="${m.id}">${m.name} (${m.email})</option>`).join('')}
+        </select>`;
       modalAction = createTask;
       document.getElementById('modal').style.display = 'flex';
     }
@@ -144,18 +202,56 @@
       const title = document.getElementById('tTitle').value.trim();
       if (!title) return alert('Task title is required');
       const due = document.getElementById('tDue').value;
+      const assigned = document.getElementById('tAssign').value;
       await fetch(`/api/tasks/project/${currentProject}`, {
         method: 'POST', headers: h,
         body: JSON.stringify({
           title,
           description: document.getElementById('tDesc').value,
           priority: document.getElementById('tPriority').value,
-          due_date: due || null
+          due_date: due || null,
+          assigned_to: assigned ? parseInt(assigned) : null
         })
       });
       closeModal();
       loadTasks(currentProject, currentProjectName);
       loadStats();
+    }
+
+    function showAddMember() {
+      if (!currentProject) return alert('Please click on a project first, then add a member');
+      document.getElementById('modalTitle').textContent = 'Add Member to Project';
+      document.getElementById('modalBody').innerHTML = `
+        <p style="font-size:13px;color:#64748b;margin-bottom:12px;">
+          The person must already have a registered account. Enter their email below.
+        </p>
+        <input id="memberEmail" type="email" placeholder="member@example.com">
+        <select id="memberRole">
+          <option value="member">Member</option>
+          <option value="admin">Admin</option>
+        </select>`;
+      modalAction = addMember;
+      document.getElementById('modal').style.display = 'flex';
+    }
+
+    async function addMember() {
+      const email = document.getElementById('memberEmail').value.trim();
+      if (!email) return alert('Email is required');
+      const r = await fetch(`/api/projects/${currentProject}/members`, {
+        method: 'POST', headers: h,
+        body: JSON.stringify({
+          email,
+          role: document.getElementById('memberRole').value
+        })
+      });
+      const d = await r.json();
+      if (d.error) {
+        alert('Error: ' + d.error);
+      } else {
+        closeModal();
+        alert('Member added! They can now log in and see this project.');
+        loadTasks(currentProject, currentProjectName);
+      }
     }
 
     function submitModal() { if (modalAction) modalAction(); }

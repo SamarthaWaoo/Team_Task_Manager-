@@ -92,13 +92,18 @@ def delete_project(pid):
     return jsonify({'message': 'Project deleted'})
 
 # get members of a project
-@projects_bp.route('/<int:pid>/members', methods=['GET'])
+@projects_bp.route('/<int:pid>/members-list', methods=['GET'])
 @jwt_required()
 def get_members(pid):
+    uid = int(get_jwt_identity())
+    mem = ProjectMember.query.filter_by(
+        project_id=pid, user_id=uid).first()
+    if not mem:
+        return jsonify({'error': 'Access denied'}), 403
     members = ProjectMember.query.filter_by(project_id=pid).all()
     result = []
     for m in members:
         u = User.query.get(m.user_id)
-        result.append({'id': u.id, 'name': u.name,
-                       'email': u.email, 'role': m.role})
+        if u:
+            result.append({'id': u.id, 'name': u.name, 'email': u.email})
     return jsonify(result)
