@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Task Manager</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dashboard-page">
+  <nav>
+    <span>⊞ Team Task Manager</span>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span id="welcomeMsg" style="font-size:13px;color:#64748b;"></span>
+      <button onclick="logout()">Logout</button>
+    </div>
+  </nav>
+
+  <div class="dashboard">
+    <div id="stats" class="stats"></div>
+
+    <div class="section-header">
+      <h2>My Projects</h2>
+      <button class="btn-add" onclick="showCreateProject()">+ New Project</button>
+    </div>
+    <div id="projects" class="projects-grid"></div>
+
+    <div id="tasks-section" style="display:none">
+      <div class="section-header">
+        <h2 id="tasksTitle">Tasks</h2>
+        <button class="btn-add" onclick="showCreateTask()">+ New Task</button>
+      </div>
+      <div class="tasks-container">
+        <div class="tasks-header">
+          <span>Task</span>
+          <span>Priority</span>
+          <span>Status</span>
+        </div>
+        <div id="tasks"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal" class="modal" style="display:none">
+    <div class="modal-box">
+      <h3 id="modalTitle"></h3>
+      <div id="modalBody"></div>
+      <div class="modal-btns">
+        <button onclick="closeModal()" class="btn-cancel">Cancel</button>
+        <button onclick="submitModal()" class="btn-submit">Submit</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('token');
+    if (!token) window.location = '/';
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const h = {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'};
+    let currentProject = null;
+    let currentProjectName = '';
+    let modalAction = null;
+
+    document.getElementById('welcomeMsg').textContent = 'Hello, ' + (user.name || 'User');
+
+    async function loadStats() {
+      const r = await fetch('/api/tasks/dashboard', {headers: h});
+      const d = await r.json();
+      document.getElementById('stats').innerHTML = `
+        <div class="stat"><b>${d.total}</b><span>Total</span></div>
+        <div class="stat"><b>${d.todo}</b><span>To Do</span></div>
+        <div class="stat"><b>${d.in_progress}</b><span>In Progress</span></div>
+        <div class="stat done"><b>${d.done}</b><span>Done</span></div>
+        <div class="stat overdue"><b>${d.overdue}</b><span>Overdue</span></div>`;
+    }
+
+    async function loadProjects() {
+      const r = await fetch('/api/projects/', {headers: h});
+      const ps = await r.json();
+      document.getElementById('projects').innerHTML = ps.length
+        ? ps.map(p => `
+          <div class="card" onclick="loadTasks(${p.id}, '${p.name}')">
+            <div class="card-title">${p.name}</div>
+            <div class="card-desc">${p.description || 'No description'}</div>
+            <div class="card-meta">Click to view tasks →</div>
+          </div>`).join('')
+        : '<p class="empty">No projects yet. Create your first project!</p>';
+    }
+
+    async function loadTasks(pid, pname) {
+      currentProject = pid;
+      currentProjectName = pname;
+      document.getElementById('tasks-section').style.display = 'block';
+      document.getElementById('tasksTitle').textContent = pname + ' — Tasks';
+      const r = await fetch(`/api/tasks/project/${pid}`, {headers: h});
+      const ts = await r.json();
+    }
+
+    async function updateStatus(tid, status) {
+      await fetch(`/api/tasks/${tid}`, {
+        method: 'PATCH', headers: h,
+        body: JSON.stringify({status})
+      });
+      loadStats();
+      loadTasks(currentProject, currentProjectName);
+    }
+
+    function showCreateProject() {
+      document.getElementById('modalTitle').textContent = 'Create New Project';
+      document.getElementById('modalBody').innerHTML = `
+        <input id="pName" placeholder="Project name">
+        <textarea id="pDesc" placeholder="Description (optional)" style="height:80px;resize:none;"></textarea>`;
+      modalAction = createProject;
+      document.getElementById('modal').style.display = 'flex';
+    }
+
+    async function createProject() {
+      const name = document.getElementById('pName').value.trim();
+      if (!name) return alert('Project name is required');
+      await fetch('/api/projects/', {
+        method: 'POST', headers: h,
+        body: JSON.stringify({name, description: document.getElementById('pDesc').value})
+      });
+      closeModal();
+      loadProjects();
+    }
+
+    function showCreateTask() {
+      if (!currentProject) return alert('Please select a project first');
+      document.getElementById('modalTitle').textContent = 'Create New Task';
+      document.getElementById('modalBody').innerHTML = `
+        <input id="tTitle" placeholder="Task title">
+        <textarea id="tDesc" placeholder="Description (optional)" style="height:60px;resize:none;"></textarea>
+        <select id="tPriority">
+          <option value="low">Low Priority</option>
+          <option value="medium" selected>Medium Priority</option>
+          <option value="high">High Priority</option>
+        </select>
+        <input id="tDue" type="datetime-local" placeholder="Due date (optional)">`;
+      modalAction = createTask;
+      document.getElementById('modal').style.display = 'flex';
+    }
+
+    async function createTask() {
+      const title = document.getElementById('tTitle').value.trim();
+      if (!title) return alert('Task title is required');
+      const due = document.getElementById('tDue').value;
+      await fetch(`/api/tasks/project/${currentProject}`, {
+        method: 'POST', headers: h,
+        body: JSON.stringify({
+          title,
+          description: document.getElementById('tDesc').value,
+          priority: document.getElementById('tPriority').value,
+          due_date: due || null
+        })
+      });
+      closeModal();
+      loadTasks(currentProject, currentProjectName);
+      loadStats();
+    }
+
+    function submitModal() { if (modalAction) modalAction(); }
+    function closeModal() { document.getElementById('modal').style.display = 'none'; }
+    function logout() { localStorage.clear(); window.location = '/'; }
+
+    loadStats();
+    loadProjects();
+  </script>
+</body>
+</html>
