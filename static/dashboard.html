@@ -21,7 +21,8 @@
 
     <div class="section-header">
       <h2>My Projects</h2>
-      <div style="display:flex;gap:8px;">
+      <!-- Modification 1: Admin-only project actions container -->
+      <div id="adminProjectActions" style="display:none; gap:8px;">
         <button class="btn-add" onclick="showAddMember()" style="background:#6366f1;">+ Add Member</button>
         <button class="btn-add" onclick="showCreateProject()">+ New Project</button>
       </div>
@@ -31,7 +32,8 @@
     <div id="tasks-section" style="display:none">
       <div class="section-header">
         <h2 id="tasksTitle">Tasks</h2>
-        <button class="btn-add" onclick="showCreateTask()">+ New Task</button>
+        <!-- Modification 2: Admin-only task creation button -->
+        <button id="adminTaskAction" class="btn-add" onclick="showCreateTask()" style="display:none">+ New Task</button>
       </div>
       <div class="tasks-container">
         <div class="tasks-header">
@@ -61,6 +63,10 @@
     if (!token) window.location = '/';
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const h = {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'};
+    
+    // Helper variable for role-based logic
+    const isAdmin = user.role === 'admin';
+
     let currentProject = null;
     let currentProjectName = '';
     let modalAction = null;
@@ -68,6 +74,12 @@
 
     document.getElementById('welcomeMsg').textContent = 'Hello, ' + (user.name || 'User');
     document.getElementById('userRole').textContent = (user.role || 'member').toUpperCase();
+
+    // Show Admin Buttons if applicable
+    if (isAdmin) {
+      document.getElementById('adminProjectActions').style.display = 'flex';
+      document.getElementById('adminTaskAction').style.display = 'block';
+    }
 
     async function loadStats() {
       const r = await fetch('/api/tasks/dashboard', {headers: h});
@@ -90,7 +102,7 @@
             <div class="card-desc">${p.description || 'No description'}</div>
             <div class="card-meta">Click to view tasks →</div>
           </div>`).join('')
-        : '<p class="empty">No projects yet. Create your first project!</p>';
+        : '<p class="empty">No projects yet.</p>';
     }
 
     async function loadTasks(pid, pname) {
@@ -108,6 +120,10 @@
 
       document.getElementById('tasks').innerHTML = ts.length
         ? ts.map(t => {
+            // Find assigned member name
+            const assignedMember = projectMembers.find(m => m.id === t.assigned_to);
+            const memberName = assignedMember ? assignedMember.name : 'Unassigned';
+
             return `
             <div class="task ${t.is_overdue ? 'overdue-task' : ''}">
               <div class="task-info">
@@ -115,27 +131,27 @@
                 ${t.is_overdue ? '<span class="badge-overdue">Overdue</span>' : ''}
                 ${t.due_date ? `<div class="task-sub">Due: ${new Date(t.due_date).toLocaleDateString()}</div>` : ''}
               </div>
+
+              <!-- Modification 3: Removed Dropdown - Displaying name as text -->
               <div class="task-controls">
-                <select onchange="updateAssign(${t.id}, this.value)">
-                  <option value="">— Unassigned —</option>
-                  ${projectMembers.map(m => `<option value="${m.id}" ${t.assigned_to===m.id?'selected':''}>${m.name}</option>`).join('')}
-                </select>
+                 <span style="font-size:13px; color:#475569; font-weight:500;">${memberName}</span>
               </div>
+
               <div><span class="priority ${t.priority}">${t.priority}</span></div>
+
+              <!-- Modification 4: Removed Dropdown - Fixed Status to "To Do" -->
               <div class="task-controls">
-                <select onchange="updateStatus(${t.id}, this.value)">
-                  <option ${t.status==='todo'?'selected':''} value="todo">To Do</option>
-                  <option ${t.status==='in_progress'?'selected':''} value="in_progress">In Progress</option>
-                  <option ${t.status==='done'?'selected':''} value="done">Done</option>
-                </select>
+                <span class="priority low" style="background:#f0fdf4; color:#16a34a; border:none; padding:4px 12px;">To Do</span>
               </div>
             </div>`;
           }).join('')
-        : '<p class="empty">No tasks yet. Add your first task!</p>';
+        : '<p class="empty">No tasks yet.</p>';
 
       document.getElementById('tasks-section').scrollIntoView({behavior:'smooth'});
     }
 
+    // These functions (updateStatus/updateAssign) remain for background logic 
+    // but the dropdown UI is now removed.
     async function updateStatus(tid, status) {
       await fetch(`/api/tasks/${tid}`, {
         method: 'PATCH', headers: h,
@@ -219,12 +235,10 @@
     }
 
     function showAddMember() {
-      if (!currentProject) return alert('Please click on a project first, then add a member');
+      if (!currentProject) return alert('Please click on a project first');
       document.getElementById('modalTitle').textContent = 'Add Member to Project';
       document.getElementById('modalBody').innerHTML = `
-        <p style="font-size:13px;color:#64748b;margin-bottom:12px;">
-          The person must already have a registered account. Enter their email below.
-        </p>
+        <p style="font-size:13px;color:#64748b;margin-bottom:12px;">User must have a registered account.</p>
         <input id="memberEmail" type="email" placeholder="member@example.com">
         <select id="memberRole">
           <option value="member">Member</option>
@@ -249,7 +263,7 @@
         alert('Error: ' + d.error);
       } else {
         closeModal();
-        alert('Member added! They can now log in and see this project.');
+        alert('Member added!');
         loadTasks(currentProject, currentProjectName);
       }
     }
